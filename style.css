@@ -2,11 +2,11 @@
   --paper:#f3f1ea; --card:#fff; --ink:#17201d; --muted:#5d6964; --line:#dbd7cb; --soft:#ebe8de;
   --accent:#0f5c4d; --accent-2:#e3efe9; --danger:#b3261e; --warn:#8a5a00; --draw:#d9480f;
   --c-event:#c0392f; --c-poi:#5a4aa6; --c-food:#b96a00; --c-tour:#17705c; --c-offer:#23639c; --c-webcam:#1d2422;
-  --r:10px; --mono:"IBM Plex Mono",ui-monospace,monospace;
+  --r:10px; --mono:ui-monospace,SFMono-Regular,Consolas,monospace;
 }
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
-body{font:15px/1.45 Figtree,system-ui,sans-serif;color:var(--ink);background:var(--paper)}
+body{font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--ink);background:var(--paper)}
 button,input,select,textarea{font:inherit;color:inherit}
 button{cursor:pointer}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
