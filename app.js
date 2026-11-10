@@ -1,10 +1,8 @@
 'use strict';
 /* ===================== Konfiguration =====================
    Produktiv: Bibliotheken + Kacheln ausschliesslich vom eigenen Kartenserver (Projektanweisung Kap. 2).
-   Der CDN-Fallback ist nur für diesen Prototyp gedacht. Der Supabase-Key ist ein publishable (öffentlicher) Key;
-   der Schutz der Daten erfolgt über Row Level Security + Anmeldung. */
+   Der Supabase-Key ist ein publishable (öffentlicher) Key; der Schutz der Daten erfolgt über Row Level Security + Anmeldung. */
 const CFG={mapBase:'http://83.228.212.145',sb:{url:'https://tcnukiwzsitmicqerhdo.supabase.co',key:'sb_publishable_0xFTQgcjH1fNuYhho0Dpdw_rUTdCWBh'},
-  cdn:{ml:'https://unpkg.com/maplibre-gl@5.1.0/dist/maplibre-gl.js',mlcss:'https://unpkg.com/maplibre-gl@5.1.0/dist/maplibre-gl.css',pm:'https://unpkg.com/pmtiles@3.2.0/dist/pmtiles.js',bm:'https://unpkg.com/@protomaps/basemaps@5.0.0/dist/basemaps.js'},
   own:{ml:'/lib/maplibre-gl.js',mlcss:'/lib/maplibre-gl.css',pm:'/lib/pmtiles.js',bm:'/lib/basemaps.js',topo:'/topo.pmtiles',sat:'/sat.pmtiles',dem:'/dem.pmtiles',glyphs:'/fonts/{fontstack}/{range}.pbf'}};
 const GR={w:8.65,s:46.16,e:10.50,n:47.07};
 const TOWNS=[['Chur',9.533,46.850],['Davos',9.822,46.797],['St. Moritz',9.838,46.498],['Arosa',9.680,46.779],['Scuol',10.298,46.797],['Disentis',8.853,46.703],['Thusis',9.440,46.697],['Poschiavo',10.060,46.325],['Ilanz',9.205,46.774],['Klosters',9.880,46.869],['Lenzerheide',9.558,46.729],['Flims',9.284,46.836],['Savognin',9.598,46.597],['Zernez',10.093,46.699],['Samedan',9.873,46.534],['Landquart',9.564,46.967],['Splügen',9.323,46.552],['Vals',9.181,46.617],['Maloja',9.695,46.404],['Müstair',10.448,46.626],['Roveredo',9.129,46.236],['Bergün',9.746,46.629]];
@@ -281,7 +279,7 @@ function renderAll(){renderChrome();renderList()}
 /* ===================== Karte ===================== */
 const M={map:null,ready:false,server:false,markers:[],vx:[],towns:[],hov:null,sat:false};
 function loadScript(src){return new Promise((res,rej)=>{const s=document.createElement('script');s.src=src;s.onload=res;s.onerror=()=>rej(new Error('Laden fehlgeschlagen: '+src));document.head.appendChild(s)})}
-async function loadLib(k,test){if(test())return;const urls=CFG.mapBase?[CFG.mapBase+CFG.own[k],CFG.cdn[k]]:[CFG.cdn[k]];let err;for(const u of urls){try{await loadScript(u);if(test())return}catch(e){err=e;console.warn(e.message)}}throw err||new Error('Bibliothek fehlt: '+k)}
+async function loadLib(k,test){if(test())return;if(!CFG.mapBase)throw new Error('Kartenserver-URL fehlt.');await loadScript(CFG.mapBase+CFG.own[k]);if(!test())throw new Error('Kartenbibliothek fehlt: '+CFG.own[k])}
 function cssVar(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim()}
 function buildStyle(){const st={version:8,sources:{},layers:[{id:'bg',type:'background',paint:{'background-color':'#e6e9e1'}}]},b=CFG.mapBase;
   if(M.server){st.glyphs=b+CFG.own.glyphs;st.sources.topo={type:'vector',url:'pmtiles://'+b+CFG.own.topo};
@@ -298,7 +296,7 @@ function buildStyle(){const st={version:8,sources:{},layers:[{id:'bg',type:'back
   return st}
 function mapMsg(t,retry){$('#mapMsg').hidden=!t;$('#mapMsgTxt').textContent=t||'';$('#mapRetry').hidden=!retry}
 async function initMap(){mapMsg('Karte wird geladen …');M.ready=false;if(M.map){try{M.map.remove()}catch(e){}M.map=null}M.markers=[];M.vx=[];M.towns=[];M.hov=null;
-  try{if(!$('#mlcss')){const l=document.createElement('link');l.id='mlcss';l.rel='stylesheet';l.href=CFG.mapBase?CFG.mapBase+CFG.own.mlcss:CFG.cdn.mlcss;l.onerror=()=>{if(l.href!==CFG.cdn.mlcss)l.href=CFG.cdn.mlcss};document.head.appendChild(l)}
+  try{if(!$('#mlcss')){const l=document.createElement('link');l.id='mlcss';l.rel='stylesheet';l.href=CFG.mapBase+CFG.own.mlcss;document.head.appendChild(l)}
     await loadLib('ml',()=>!!window.maplibregl);M.server=false;
     if(CFG.mapBase){try{const ctl=new AbortController(),to=setTimeout(()=>ctl.abort(),6000);const hc=await fetch(CFG.mapBase+CFG.own.topo,{headers:{Range:'bytes=0-1'},signal:ctl.signal});clearTimeout(to);if(!(hc.ok||hc.status===206))throw new Error('Kartenserver liefert '+CFG.own.topo+' nicht (HTTP '+hc.status+')');await loadLib('pm',()=>!!window.pmtiles);await loadLib('bm',()=>!!window.basemaps);if(!M.proto){M.proto=new pmtiles.Protocol();maplibregl.addProtocol('pmtiles',M.proto.tile)}M.server=true;await DEM.init()}catch(e){console.warn(e);M.server=false;toast('Kartenserver nicht erreichbar oder Dateien fehlen – Orientierungsraster wird verwendet.')}}
     const map=M.map=new maplibregl.Map({container:'map',style:buildStyle(),bounds:[[GR.w-.1,GR.s-.05],[GR.e+.1,GR.n+.05]],fitBoundsOptions:{padding:30},attributionControl:false,dragRotate:false,pitchWithRotate:false,maxPitch:0});
@@ -310,7 +308,7 @@ async function initMap(){mapMsg('Karte wird geladen …');M.ready=false;if(M.map
     map.on('mouseenter','tours-line',()=>{if(!S.pick&&!S.drawing)map.getCanvas().style.cursor='pointer'});map.on('mouseleave','tours-line',()=>{if(!S.pick&&!S.drawing)map.getCanvas().style.cursor=''});
     map.on('moveend',mapInfo);
     $('#satBtn').hidden=!M.server;setSrv()}
-  catch(e){console.warn(e);mapMsg(/webgl/i.test(String(e&&e.message))?'Dieser Browser unterstützt die Kartendarstellung (WebGL) nicht. Die Tabellenansicht und alle Formulare funktionieren weiterhin; Touren lassen sich über die Wegpunkt-Tabelle oder per GPX-Import erfassen.':'Die Karte konnte nicht geladen werden. Die Tabellenansicht und alle Formulare funktionieren weiterhin.',true)}}
+  catch(e){console.warn(e);mapMsg(/webgl/i.test(String(e&&e.message))?'Dieser Browser unterstützt die Kartendarstellung (WebGL) nicht. Die Tabellenansicht und alle Formulare funktionieren weiterhin; Touren lassen sich über die Wegpunkt-Tabelle oder per GPX-Import erfassen.':(location.protocol==='https:'&&CFG.mapBase.startsWith('http:')?'Der Kartenserver ist nur per HTTP konfiguriert. GitHub Pages läuft über HTTPS und blockiert diesen Zugriff (Mixed Content). Bitte Kartenserver mit gültigem HTTPS-Zertifikat bereitstellen.':'Die Karte konnte nicht geladen werden. Die Tabellenansicht und alle Formulare funktionieren weiterhin.'),true)}}
 function setSrv(){const ok=M.server;$('#srvPill').classList.toggle('ok',ok);$('#srvTxt').textContent=ok?'Kartenserver verbunden'+(DEM.ok?' · Höhenmodell aktiv':''):'Kartenserver nicht verbunden';
   $('#attr').textContent=ok?'© OpenStreetMap · Luftbild: © swisstopo, basemap.at, Provinz Bozen · Gelände: © swisstopo, BEV, INGV':'Orientierungsraster (0.25°) mit genäherten Ortspunkten – Basiskarte folgt mit Kartenserver'}
 function mapInfo(){if(!M.ready)return;const b=M.map.getBounds(),list=filtered(),vis=list.filter(it=>{const p=pointOf(it);return p&&b.contains(p)}).length,noGeo=list.filter(it=>!pointOf(it)).length;
@@ -401,7 +399,7 @@ function drawProfile(){const el=$('#profSvg'),c=S.draft&&S.draft.computed;if(!el
   el.onkeydown=e=>{const st=Math.max(1,Math.round(P.length/40));if(e.key==='ArrowRight'){show(ci+st);e.preventDefault()}if(e.key==='ArrowLeft'){show(ci-st);e.preventDefault()}}}
 function renderWp(){const D=S.draft,box=$('#wpBox');if(!box||!D||D.type!=='tour')return;const tk=D.track;
   let h='<details '+(tk.length&&tk.length<=12?'open':'')+'><summary class="lbl" style="cursor:pointer;margin-bottom:8px">Wegpunkte ('+tk.length+') – Koordinaten und Höhen bearbeiten</summary>';
-  if(tk.length>150)h+=`<div class="note">Importierter Track mit ${tk.length} Punkten. Einzelpunkte werden ab 150 Punkten nicht mehr einzeln angezeigt. <button type="button" class="btn sm" data-act="tsimp">Stärker vereinfachen (20 m)</button></div>`;
+  if(tk.length>150)h+=`<div class="note">Importierter Track mit ${tk.length} Punkten. Einzelpunkte werden ab 150 Punkten nicht mehr angezeigt. <button type="button" class="btn sm" data-act="tsimp">Stärker vereinfachen (20 m)</button></div>`;
   else if(tk.length)h+=`<div class="wp"><table><thead><tr><th>#</th><th>Breite</th><th>Länge</th><th>Höhe m</th><th><span class="vh">Aktion</span></th></tr></thead><tbody>${tk.map((p,i)=>`<tr><td class="num">${i+1}</td><td><input type="number" step="0.000001" data-wp="${i}" data-f="y" value="${p.y}" aria-label="Breite Punkt ${i+1}"></td><td><input type="number" step="0.000001" data-wp="${i}" data-f="x" value="${p.x}" aria-label="Länge Punkt ${i+1}"></td><td><input type="number" step="1" data-wp="${i}" data-f="z" value="${p.z??''}" placeholder="–" aria-label="Höhe Punkt ${i+1}"></td><td><button type="button" class="x" style="width:28px;height:28px" data-act="wpdel" data-i="${i}" aria-label="Punkt ${i+1} löschen">×</button></td></tr>`).join('')}</tbody></table></div>`;
   h+=`<div class="g" style="align-items:end"><label class="f t"><span>Breite</span><input type="number" step="0.000001" id="wpLat" placeholder="46.5886"></label><label class="f t"><span>Länge</span><input type="number" step="0.000001" id="wpLon" placeholder="9.7767"></label><label class="f t"><span>Höhe m</span><input type="number" step="1" id="wpEle"></label></div><div class="tools" style="margin-top:8px"><button type="button" class="btn sm" data-act="wpadd">Wegpunkt per Koordinaten anfügen</button></div></details>`;
   box.innerHTML=h}
@@ -484,7 +482,7 @@ const DB={sess:null,online:false,
   async refresh(){if(!this.sess||!this.sess.refresh_token)throw new Error('Sitzung abgelaufen');const j=await this.auth('token?grant_type=refresh_token',{refresh_token:this.sess.refresh_token});this.sess={access_token:j.access_token,refresh_token:j.refresh_token,email:this.sess.email,exp:Date.now()+(j.expires_in||3600)*1000};this.keep()},
   logout(){this.sess=null;this.keep()},
   async req(path,o={}){if(this.sess&&this.sess.exp-Date.now()<60000){try{await this.refresh()}catch(e){this.logout();userUI();throw new Error('Sitzung abgelaufen – bitte erneut anmelden.')}}
-    const go=()=>fetch(CFG.sb.url+'/rest/v1/'+path,{method:o.method||'GET',headers:Object.assign({apikey:CFG.sb.key,Authorization:'Bearer '+(this.sess?this.sess.access_token:CFG.sb.key),'Content-Type':'application/json'},o.headers||{}),body:o.body});
+    const headers={apikey:CFG.sb.key,'Content-Type':'application/json',...(this.sess?{Authorization:'Bearer '+this.sess.access_token}:{})};const go=()=>fetch(CFG.sb.url+'/rest/v1/'+path,{method:o.method||'GET',headers:Object.assign(headers,o.headers||{}),body:o.body});
     let r=await go();if(r.status===401&&this.sess){try{await this.refresh();r=await go()}catch(e){this.logout();userUI();throw new Error('Sitzung abgelaufen – bitte erneut anmelden.')}}
     if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.message||('Datenbankfehler '+r.status))}
     return r.status===204?null:r.json().catch(()=>null)},
