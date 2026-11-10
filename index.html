@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contenthub Graubünden</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="side" id="side" aria-label="Hauptnavigation">
+    <div class="brand">
+      <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true"><rect width="34" height="34" rx="9" fill="#17201d"/><path d="M5 24c4-1 5-6 8-6s3 3 6 2 4-8 10-9M5 19c3-1 4-5 7-5s3 3 6 2 4-7 11-8M5 28c5-1 6-5 9-5s4 2 7 1 4-5 8-6" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg>
+      <div><b>Contenthub</b><small>Graubünden · Erfassung</small></div>
+    </div>
+    <nav class="nav" id="nav"></nav>
+    <footer>Schema: discover.swiss Infocenter · ODTA-CH Attribute Tree V1.1<br>Speicherung: Supabase (nach Anmeldung).</footer>
+  </aside>
+  <div class="main">
+    <div class="top">
+      <button class="btn sm" id="burger" data-act="burger" aria-label="Navigation öffnen">☰</button>
+      <div class="crumb"><span>Home › </span><b>Contenthub</b></div>
+      <div class="sp"></div>
+      <button class="pill" id="userPill" data-act="login" style="display:inline-flex"><i></i><span id="userTxt">Nicht angemeldet</span></button>
+      <button class="pill" id="srvPill" data-act="settings"><i></i><span id="srvTxt">Kartenserver nicht verbunden</span></button>
+      <div class="menuwrap">
+        <button class="btn pri" data-act="newmenu" aria-haspopup="true" aria-expanded="false" id="newBtn">+ Neu erfassen</button>
+        <div class="menu" id="newMenu" hidden></div>
+      </div>
+    </div>
+    <div class="stats" id="stats"></div>
+    <div class="content" id="content">
+      <div id="panel">
+        <div class="q"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <label class="vh" for="q">Suche</label><input id="q" type="search" placeholder="Name, Ort oder Inhalt suchen" autocomplete="off"></div>
+        <div class="frow"><label for="fStatus">Status</label>
+          <select id="fStatus"><option value="">Alle</option><option value="draft">Entwurf</option><option value="published">Publiziert</option></select>
+          <span class="num" id="fCount" aria-live="polite"></span></div>
+      </div>
+      <div id="mapWrap" role="region" aria-label="Karte: Inhalte des Contenthubs">
+        <div id="map"></div>
+        <div class="mapmsg" id="mapMsg"><div><p id="mapMsgTxt">Karte wird geladen …</p><button class="btn" data-act="mapretry" id="mapRetry" hidden>Erneut versuchen</button></div></div>
+        <div class="modehint" id="modeHint" hidden></div>
+        <div class="zoom"><button data-act="zout" aria-label="Verkleinern">−</button><button data-act="zin" aria-label="Vergrössern">+</button><button class="t" data-act="fitgr">Graubünden</button><button class="t" data-act="sat" id="satBtn" aria-pressed="false" hidden>Luftbild</button></div>
+        <div class="mapinfo" id="mapInfo" aria-live="polite"></div>
+        <div class="attr" id="attr"></div>
+        <div class="emptyc empty" id="emptyMap" hidden></div>
+      </div>
+      <div id="tableWrap" hidden></div>
+      <section id="drawer" hidden aria-label="Eintrag bearbeiten">
+        <div class="dh"><span id="dIcon"></span><h2 id="dTitle"></h2><div class="langs" id="langs" role="group" aria-label="Erfassungssprache"></div>
+          <button class="x" id="minBtn" data-act="min" aria-label="Formular ein-/ausklappen">▾</button><button class="x" data-act="close" aria-label="Schliessen">×</button></div>
+        <div id="ed"></div>
+        <div class="df"><span id="dQual" class="num"></span><div class="sp"></div>
+          <button class="btn dan sm" data-act="del" id="delBtn">Löschen</button><button class="btn" data-act="close">Verwerfen</button><button class="btn pri" data-act="save">Speichern</button></div>
+      </section>
+    </div>
+  </div>
+</div>
+<div id="dlgHost"></div>
+<div id="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>
