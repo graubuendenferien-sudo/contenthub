@@ -1,18 +1,20 @@
-/* Contenthub-Erweiterung: Organisationen, Rollen, Status, Schreibschutz, Bild-Upload.
+/* Contenthub-Erweiterung: Organisationen, Rollen, Status, Schreibschutz, Freigabe, Bild-Upload.
    Wird nach app.js und map-config.js geladen. Die Rechte werden in der Datenbank durchgesetzt;
    diese Datei sorgt nur fuer die passende Anzeige. */
 (function(){
   'use strict';
   if(typeof DB==='undefined'||typeof S==='undefined'||typeof F==='undefined'||typeof ACT==='undefined')return;
 
-  const HUB=window.HUB={me:null,orgs:{},owner:{}};
+  const HUB=window.HUB={me:null,orgs:{},owner:{},partner:!!window.PARTNER};
   const STATUS={draft:'Entwurf',submitted:'Eingereicht',changes_requested:'Zur Überarbeitung',published:'Publiziert',rejected:'Abgelehnt',archived:'Archiviert'};
   const OWN_STATUS=['draft','published','archived'];
+  HUB.STATUS=STATUS;
 
   function jwtSub(t){try{const p=t.split('.')[1].replace(/-/g,'+').replace(/_/g,'/');return JSON.parse(atob(p)).sub||null}catch(e){return null}}
   function ownerOf(it){return it?(it.ownerOrg||HUB.owner[it.id]||null):null}
   function orgName(id){return id?(HUB.orgs[id]||'Unbekannte Organisation'):''}
-  function canEdit(it){if(!it||it.demo)return true;if(!DB.sess)return true;if(!HUB.me)return false;const o=ownerOf(it);return HUB.me.role==='admin'||!o||o===HUB.me.org_id}
+  function canEdit(it){if(HUB.partner)return true;if(!it||it.demo)return true;if(!DB.sess)return true;if(!HUB.me)return false;const o=ownerOf(it);return HUB.me.role==='admin'||!o||o===HUB.me.org_id}
+  function canReview(it){return !HUB.partner&&!!HUB.me&&(HUB.me.role==='admin'||HUB.me.role==='approver')&&canEdit(it)}
   HUB.canEdit=canEdit;HUB.ownerOf=ownerOf;
 
   async function loadHub(){
@@ -42,7 +44,10 @@
   pull=async function(){
     await loadHub();
     await origPull();
-    if(DB.sess&&DB.online&&!HUB.me)toast('Ihr Konto ist noch keiner Destination zugeordnet. Lesen ist möglich, Speichern nicht.');
+    if(HUB.partner||!DB.sess||!DB.online)return;
+    if(!HUB.me){toast('Ihr Konto ist noch keiner Destination zugeordnet. Lesen ist möglich, Speichern nicht.');return}
+    const n=S.items.filter(i=>i.status==='submitted'&&canReview(i)).length;
+    if(n)toast(n===1?'1 Eintrag wartet auf Ihre Freigabe (Filter «Eingereicht»).':n+' Einträge warten auf Ihre Freigabe (Filter «Eingereicht»).');
   };
 
   const origUserUI=userUI;
@@ -52,14 +57,16 @@
   };
 
   const origNewItem=newItem;
-  newItem=function(type){const it=origNewItem(type);if(HUB.me)it.ownerOrg=HUB.me.org_id;return it};
+  newItem=function(type){const it=origNewItem(type);if(HUB.me&&!HUB.partner)it.ownerOrg=HUB.me.org_id;return it};
 
   /* Statusauswahl im Formular */
   const origSel=F.sel;
   F.sel=function(k,l,opts,o){
     if(k==='status'&&S.draft){
-      const cur=S.draft.status,list=OWN_STATUS.slice();
+      if(HUB.partner)return '';
+      const cur=S.draft.status;let list=OWN_STATUS.slice();
       if(cur&&!list.includes(cur))list.unshift(cur);
+      if(cur==='submitted'&&HUB.me&&HUB.me.role==='editor')list=[cur];
       opts=list.map(s=>[s,STATUS[s]||s]);
     }
     return origSel.call(F,k,l,opts,o);
@@ -82,11 +89,39 @@
     });
   };
 
+  /* Freigabe: Angaben zur Einreichung und Aktionen */
+  function reviewBox(D){
+    const box=document.createElement('div');box.id='hubReview';box.className='note';
+    box.innerHTML='<b>Von einem Partner eingereicht – wartet auf Freigabe.</b><div id="revInfo" style="margin:6px 0">Angaben zur Einreichung werden geladen …</div>'+
+      '<label class="f"><span>Begründung (Pflicht bei Zurückweisen und Ablehnen, geht an den Partner)</span><textarea id="revComment" rows="2"></textarea></label>'+
+      '<div class="tools" style="margin:8px 0 0"><button type="button" class="btn pri sm" data-act="review" data-a="approve">Freigeben und publizieren</button>'+
+      '<button type="button" class="btn sm" data-act="review" data-a="return">Zur Überarbeitung zurückweisen</button>'+
+      '<button type="button" class="btn dan sm" data-act="review" data-a="reject">Ablehnen</button></div>';
+    DB.req('partner_submissions?select=contact_name,contact_email,plz,review_comment&item_id=eq.'+encodeURIComponent(D.id)).then(rows=>{
+      const el=$('#revInfo');if(!el||S.draft!==D)return;const r=rows&&rows[0];
+      el.textContent=r?'Eingereicht von '+r.contact_name+' ('+r.contact_email+'), PLZ '+r.plz+'.'+(r.review_comment?' Letzte Rückmeldung: '+r.review_comment:''):'Keine Angaben zur Einreichung vorhanden.';
+    }).catch(()=>{const el=$('#revInfo');if(el)el.textContent='Angaben zur Einreichung konnten nicht geladen werden.'});
+    return box;
+  }
+  ACT.review=async function(b){
+    const D=S.draft;if(!D)return;
+    if(S.dirty){toast('Bitte zuerst Ihre Änderungen speichern, dann freigeben.');return}
+    const a=b.dataset.a,c=($('#revComment')||{}).value||'';
+    if(a!=='approve'&&c.trim().length<3){toast('Bitte eine Begründung angeben.');const t=$('#revComment');if(t)t.focus();return}
+    $$('#hubReview button').forEach(x=>{x.disabled=true});
+    try{
+      const r=await DB.req('rpc/review_submission',{method:'POST',body:JSON.stringify({p_item_id:D.id,p_action:a,p_comment:c.trim()||null})});
+      const it=S.items.find(i=>i.id===D.id);if(it)it.status=r.status;
+      closeEditor();
+      toast(a==='approve'?'Eintrag freigegeben und publiziert.':a==='return'?'Eintrag zur Überarbeitung zurückgewiesen.':'Eintrag abgelehnt.');
+    }catch(e){$$('#hubReview button').forEach(x=>{x.disabled=false});toast('Freigabe fehlgeschlagen: '+e.message)}
+  };
+
   /* Formular: Eigentuemerin anzeigen, fremde Eintraege sperren */
   function decorateEditor(){
-    const D=S.draft,ed=$('#ed');if(!D||!ed)return;
+    const D=S.draft,ed=$('#ed');if(!D||!ed||HUB.partner)return;
     const lock=!canEdit(D),o=ownerOf(D);
-    const old=$('#hubOwner');if(old)old.remove();
+    ['#hubOwner','#hubReview'].forEach(q=>{const old=$(q);if(old)old.remove()});
     if(DB.sess&&(o||lock)){
       const box=document.createElement('div');box.id='hubOwner';box.className=lock?'note':'hint';
       box.textContent=!HUB.me?'Ihr Konto ist noch keiner Destination zugeordnet. Dieser Eintrag kann nur gelesen werden.':
@@ -94,6 +129,7 @@
       ed.insertBefore(box,ed.firstChild);
     }
     if(lock){$$('input,select,textarea,button',ed).forEach(el=>{if(el.dataset.act!=='jsonprev')el.disabled=true})}
+    if(D.status==='submitted'&&canReview(D)&&!S.isNew)ed.insertBefore(reviewBox(D),ed.firstChild);
     const sv=$('#drawer .df [data-act="save"]'),dl=$('#delBtn');
     if(sv)sv.hidden=lock;if(dl)dl.hidden=lock;
   }
@@ -125,8 +161,10 @@
     return i>0?html.slice(0,i)+extra+html.slice(i):html+extra;
   };
   ACT.imgpick=function(){
-    if(!DB.sess){toast('Bitte zuerst anmelden, um Bilder hochzuladen.');return}
-    if(!HUB.me){toast('Ihr Konto ist noch keiner Destination zugeordnet.');return}
+    if(!HUB.partner){
+      if(!DB.sess){toast('Bitte zuerst anmelden, um Bilder hochzuladen.');return}
+      if(!HUB.me){toast('Ihr Konto ist noch keiner Destination zugeordnet.');return}
+    }
     const f=$('#imgFile');if(f)f.click();
   };
   async function shrink(file){
@@ -148,11 +186,16 @@
       say('Bild wird vorbereitet …');
       const r=await shrink(file);
       if(r.blob.size>MAX_BYTES){say('Das Bild ist auch verkleinert grösser als 10 MB.');return}
-      if(DB.sess.exp-Date.now()<60000)await DB.refresh();
+      const headers={apikey:CFG.sb.key,'Content-Type':r.type,'Cache-Control':'max-age=31536000'};
+      let folder='partner';
+      if(!HUB.partner){
+        if(DB.sess.exp-Date.now()<60000)await DB.refresh();
+        headers.Authorization='Bearer '+DB.sess.access_token;folder=HUB.me.org_id;
+      }
       const ext={'image/jpeg':'jpg','image/png':'png','image/webp':'webp'}[r.type];
-      const path=HUB.me.org_id+'/'+D.id+'-'+Date.now().toString(36)+'.'+ext;
+      const path=folder+'/'+D.id+'-'+Date.now().toString(36)+Math.random().toString(36).slice(2,8)+'.'+ext;
       say('Bild wird hochgeladen …');
-      const resp=await fetch(CFG.sb.url+'/storage/v1/object/media/'+path,{method:'POST',headers:{apikey:CFG.sb.key,Authorization:'Bearer '+DB.sess.access_token,'Content-Type':r.type,'Cache-Control':'max-age=31536000'},body:r.blob});
+      const resp=await fetch(CFG.sb.url+'/storage/v1/object/media/'+path,{method:'POST',headers,body:r.blob});
       if(!resp.ok){const j=await resp.json().catch(()=>({}));throw new Error(j.message||j.error||('HTTP '+resp.status))}
       if(S.draft!==D)return;
       D.image.url=CFG.sb.url+'/storage/v1/object/public/media/'+path;S.dirty=true;
@@ -163,5 +206,6 @@
   document.addEventListener('change',e=>{const t=e.target;if(t&&t.dataset&&t.dataset.file==='image'){const f=t.files&&t.files[0];if(f)uploadImage(f)}});
 
   /* Start: Organisation laden und Liste neu aufbauen */
+  if(HUB.partner)return;
   if(DB.sess)pull();else userUI();
 })();
