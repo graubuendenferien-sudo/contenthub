@@ -1,5 +1,6 @@
 /* Partnerformular: Externe Partner erfassen einen Eintrag ohne Konto und reichen ihn zur Freigabe ein.
-   Nutzt die Formulare des Contenthubs. Wird nach app.js, map-config.js und hub-ext.js geladen. */
+   Nutzt die Formulare des Contenthubs. Wird nach app.js, map-config.js und hub-ext.js geladen.
+   Die Postleitzahl wird nicht mehr am Anfang abgefragt, sondern aus der Adresse im Formular uebernommen. */
 (function(){
   'use strict';
   if(!window.PARTNER||typeof HUB==='undefined'||typeof ACT==='undefined')return;
@@ -36,19 +37,16 @@
       '<label class="f"><span>Was möchten Sie erfassen?</span><select id="pType">'+opts+'</select></label>'+
       '<label class="f"><span>Ihr Name</span><input id="pName" required maxlength="200" autocomplete="name" value="'+esc(P.name)+'"></label>'+
       '<label class="f"><span>Ihre E-Mail</span><input id="pMail" type="email" required maxlength="200" autocomplete="email" value="'+esc(P.email)+'"></label>'+
-      '<label class="f"><span>Postleitzahl des Standorts</span><input id="pPlz" required inputmode="numeric" pattern="[0-9]{4}" maxlength="4" value="'+esc(P.plz)+'"></label>'+
       '<label style="position:absolute;left:-9999px" aria-hidden="true">Website<input id="pWeb" tabindex="-1" autocomplete="off"></label>'+
       '<p class="hint">Ihr Name und Ihre E-Mail werden nur für Rückfragen zu diesem Eintrag verwendet und der zuständigen Destination angezeigt.</p>'+
       '<div class="f"><button class="btn pri" type="submit">Weiter zum Formular</button></div></form>'+
       '<div id="pMsg" aria-live="polite"></div>');
     $('#pForm').addEventListener('submit',e=>{
       e.preventDefault();
-      const name=$('#pName').value.trim(),mail=$('#pMail').value.trim(),plz=$('#pPlz').value.trim(),type=$('#pType').value;
-      if(!/^[0-9]{4}$/.test(plz)){$('#pMsg').innerHTML='<div class="note err" role="alert">Bitte eine Postleitzahl mit 4 Ziffern angeben.</div>';return}
-      P.name=name;P.email=mail;P.plz=plz;P.web=$('#pWeb').value;
+      const name=$('#pName').value.trim(),mail=$('#pMail').value.trim(),type=$('#pType').value;
+      P.name=name;P.email=mail;P.web=$('#pWeb').value;
       closeDialog();
-      const it=newItem(type);if(it.address)it.address.zip=plz;
-      openEditor(it,true);
+      openEditor(newItem(type),true);
     });
   }
   ACT.pstart=startDialog;
@@ -73,7 +71,7 @@
     if(sv){sv.textContent=P.token?'Erneut einreichen':'Einreichen';sv.hidden=false}
     const old=$('#pNote');if(old)old.remove();
     if(ed){const n=document.createElement('div');n.id='pNote';n.className=P.comment?'note':'hint';
-      n.textContent=P.comment?'Rückmeldung der Destination: '+P.comment:'Bitte füllen Sie die Pflichtangaben aus und klicken Sie danach auf «Einreichen».';
+      n.textContent=P.comment?'Rückmeldung der Destination: '+P.comment:'Bitte füllen Sie die Pflichtangaben aus (inklusive Postleitzahl bei der Adresse) und klicken Sie danach auf «Einreichen». Anhand der Postleitzahl wird die zuständige Destination bestimmt.';
       ed.insertBefore(n,ed.firstChild)}
   };
 
@@ -82,6 +80,9 @@
     const D=S.draft;if(!D||P.busy)return;
     const v=validate(D);
     if(v.errs.length){S.errs=v.errs;showErrs();$('#ed').scrollTop=0;toast('Bitte die markierten Pflichtangaben ergänzen ('+v.errs.length+' offen).');return}
+    const zip=String((D.address&&D.address.zip)||'').trim();
+    if(!/^[0-9]{4}$/.test(zip)){toast('Bitte bei der Adresse eine Postleitzahl mit 4 Ziffern angeben. Sie bestimmt die zuständige Destination.');return}
+    P.plz=zip;
     const c=clone(D);if(c.computed)delete c.computed.profile;c.modified=new Date().toISOString();
     P.busy=true;const sv=$('#drawer .df [data-act="save"]');if(sv){sv.disabled=true;sv.textContent='Wird eingereicht …'}
     try{
