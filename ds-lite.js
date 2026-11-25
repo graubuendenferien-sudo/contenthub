@@ -21,6 +21,36 @@
   const isLite=it=>!!(it&&it.dsLite);
   const newId=()=>typeof uid==='function'?uid():'c'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 
+  /* ---------- Anmeldung robuster: Erneuerung nur einmal gleichzeitig,
+     bei Netzwerkfehlern (z. B. nach dem Ruhezustand) wiederholen statt abmelden ---------- */
+  if(DB.refresh&&!DB.refresh._safe){
+    const origRefresh=DB.refresh;let inflight=null;
+    DB.refresh=function(){
+      if(inflight)return inflight;
+      inflight=(async()=>{
+        for(let i=0;;i++){
+          try{return await origRefresh.call(DB)}
+          catch(e){if(i>=4||!(e instanceof TypeError))throw e;await new Promise(r=>setTimeout(r,1500*(i+1)))}
+        }
+      })().finally(()=>{inflight=null});
+      return inflight;
+    };
+    DB.refresh._safe=true;
+  }
+
+  /* ---------- Statuszeile unter dem Filter ---------- */
+  let state='idle',stateMsg='';
+  function stateUI(){
+    let el=$('#liteState');
+    const panel=$('#panel');if(!panel)return;
+    if(!el){el=document.createElement('div');el.id='liteState';el.className='hint';el.setAttribute('aria-live','polite');el.style.margin='6px 0 0';panel.appendChild(el)}
+    if(!DB.sess){el.innerHTML='Nicht angemeldet – die Infocenter-Objekte erscheinen erst nach der Anmeldung. <button type="button" class="btn sm" data-act="login">Anmelden</button>';el.hidden=false;return}
+    if(state==='loading'){el.textContent='Infocenter-Objekte werden geladen …';el.hidden=false;return}
+    if(state==='error'){el.innerHTML='Infocenter-Objekte konnten nicht geladen werden ('+esc(stateMsg)+'). <button type="button" class="btn sm" data-act="litereload">Erneut laden</button>';el.hidden=false;return}
+    if(state==='ok'){el.textContent=LITE.length.toLocaleString('de-CH')+' Infocenter-Objekte geladen.';el.hidden=false;return}
+    el.hidden=true;
+  }
+
   /* ---------- Uebersicht laden ---------- */
   function toLite(r){
     const add=r.additional_type||'',t=r.type;
@@ -33,8 +63,10 @@
       track:[],computed:{},schedule:[],location:'',hours:[],hoursNote:{},
       created:r.modified||r.synced_at,modified:r.modified||r.synced_at};
   }
-  async function loadLite(){
-    if(!DB.sess||loading)return;loading=true;
+  async function loadLite(attempt){
+    attempt=attempt||0;
+    if(!DB.sess){stateUI();return}
+    if(loading)return;loading=true;state='loading';stateUI();
     try{
       const rows=[];let off=0,done=false;
       while(!done&&off<60000){
@@ -42,14 +74,21 @@
         batch.forEach(b=>{rows.push(...(b||[]));if(!b||b.length<PAGE)done=true});
         off+=4*PAGE;
       }
-      LITE=rows.map(toLite);TOKEN={};
+      LITE=rows.map(toLite);TOKEN={};state='ok';
       renderAll();
-      if(LITE.length)toast(LITE.length.toLocaleString('de-CH')+' Infocenter-Objekte geladen (Status «Infocenter»).');
-    }catch(e){console.warn('Infocenter-Uebersicht nicht geladen',e);toast('Infocenter-Übersicht konnte nicht geladen werden: '+e.message)}
+    }catch(e){
+      console.warn('Infocenter-Uebersicht nicht geladen',e);
+      state='error';stateMsg=e.message||'Fehler';
+      loading=false;stateUI();
+      if(DB.sess&&attempt<2){setTimeout(()=>loadLite(attempt+1),3000*(attempt+1))}
+      return;
+    }
     finally{loading=false}
+    stateUI();
   }
+  ACT.litereload=function(){loadLite(0)};
   function merge(){
-    if(!DB.sess){LITE=[]}
+    if(!DB.sess){LITE=[];if(state!=='loading')state='idle'}
     if(S.items._lite===TOKEN)return;
     const own=S.items.filter(i=>!i.dsLite);
     S.items=LITE.length?own.concat(LITE):own;S.items._lite=TOKEN;
@@ -96,6 +135,7 @@
       }
     }
     try{origRenderList()}finally{OVR=null}
+    stateUI();
     const old=$('#liteMore');if(old)old.remove();
     if(cut){
       const c=$('#fCount');if(c)c.textContent=total.toLocaleString('de-CH')+' von '+S.items.length.toLocaleString('de-CH');
@@ -272,5 +312,5 @@
   /* ---------- Start und Neuladen ---------- */
   const origPull=pull;
   pull=async function(){await origPull();await loadLite()};
-  if(DB.sess)loadLite();
+  if(DB.sess)loadLite();else stateUI();
 })();
