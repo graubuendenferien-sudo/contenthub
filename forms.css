@@ -1,0 +1,3 @@
+/* Ergaenzungen zu style.css (style.css bleibt unveraendert).
+   Hinweise und Meldungen in Formularen ueber die ganze Breite statt in einer Rasterspalte. */
+.g>p,.g>.hint,.g>.note{grid-column:1/-1}
