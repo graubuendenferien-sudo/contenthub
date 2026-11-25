@@ -54,7 +54,7 @@
   /* ---------- Uebersicht laden ---------- */
   function toLite(r){
     const add=r.additional_type||'',t=r.type;
-    return{id:'ds:'+r.ds_id,dsId:r.ds_id,dsLite:true,dsEndpoint:r.endpoint,dsType:r.ds_type,dsAdd:add,dsQuality:r.quality||0,
+    return{id:'ds:'+r.ds_id,dsId:r.ds_id,dsLite:true,dsEndpoint:r.endpoint,dsType:r.ds_type,dsAdd:add,dsQuality:r.quality||0,dsProjects:r.projects||[],
       type:t,status:'infocenter',source:'discover.swiss',sourceId:r.ds_id,
       name:{de:r.name||r.ds_id},short:{},description:{},
       additionalType:t==='poi'?(r.ds_type==='SkiResort'?'Place:_':(r.ds_type||'Place')+':'+(add||'_')):add,
@@ -70,11 +70,11 @@
     try{
       const rows=[];let off=0,done=false;
       while(!done&&off<60000){
-        const batch=await Promise.all([0,1,2,3].map(k=>DB.req('ds_index?select=ds_id,endpoint,type,ds_type,additional_type,name,place,zip,lat,lon,quality,modified,synced_at&order=ds_id&limit='+PAGE+'&offset='+(off+k*PAGE))));
+        const batch=await Promise.all([0,1,2,3].map(k=>DB.req('ds_index?select=ds_id,endpoint,type,ds_type,additional_type,name,place,zip,lat,lon,quality,modified,synced_at,projects&order=ds_id&limit='+PAGE+'&offset='+(off+k*PAGE))));
         batch.forEach(b=>{rows.push(...(b||[]));if(!b||b.length<PAGE)done=true});
         off+=4*PAGE;
       }
-      LITE=rows.map(toLite);TOKEN={};state='ok';
+      LITE=rows.map(toLite);TOKEN={};state='ok';projUI();
       renderAll();
     }catch(e){
       console.warn('Infocenter-Uebersicht nicht geladen',e);
@@ -95,11 +95,31 @@
   }
 
   /* ---------- Liste, Filter, Qualitaet ---------- */
-  const origFiltered=filtered;
+  const origFiltered0=filtered;
+  /* Filter Infocenter-Projekt: leer = kein Filter; sonst nur Infocenter-Objekte dieses Projekts */
+  function origFiltered(){
+    const f=origFiltered0();const pr=S.dsProject||'';
+    return pr?f.filter(i=>i.dsLite&&(i.dsProjects||[]).includes(pr)):f;
+  }
   filtered=function(){
     if(OVR){const o=OVR;OVR=null;return o}
     const f=origFiltered();return NOLITE?f.filter(i=>!i.dsLite):f;
   };
+  function projUI(){
+    const fs=$('#fStatus');if(!fs)return;
+    let sel=$('#fProject');
+    if(!sel){
+      sel=document.createElement('select');sel.id='fProject';sel.title='Infocenter-Projekt';sel.setAttribute('aria-label','Infocenter-Projekt');
+      sel.addEventListener('change',e=>{S.dsProject=e.target.value;S.liteLimit=STEP;renderList()});
+      fs.insertAdjacentElement('afterend',sel);
+    }
+    const cnt={};LITE.forEach(i=>(i.dsProjects||[]).forEach(p=>{cnt[p]=(cnt[p]||0)+1}));
+    const list=Object.keys(cnt).sort((a,b)=>(a!=='grf-web')-(b!=='grf-web')||a.localeCompare(b));
+    const cur=S.dsProject||'';
+    sel.innerHTML='<option value="">Alle Infocenter-Projekte</option>'+list.map(p=>'<option value="'+esc(p)+'">Projekt '+esc(p)+' ('+cnt[p].toLocaleString('de-CH')+')</option>').join('');
+    sel.value=list.includes(cur)?cur:'';S.dsProject=sel.value;
+    sel.hidden=!list.length;
+  }
   const origValidate=validate;
   validate=function(it){return isLite(it)?{errs:[],rec:[],score:it.dsQuality}:origValidate(it)};
   const origPointOf=pointOf;
@@ -269,48 +289,3 @@
     }else if(D.copyOf){
       const n=document.createElement('div');n.id='dsLiteNote';n.className='hint';
       n.textContent='Kopie des Infocenter-Objekts '+D.copyOf+' · Confidence '+(D.confidence||CONF_STD)+((D.confidence||0)>=CONF_MASTER?' (Master-Objekt)':'');
-      ed.insertBefore(n,ed.firstChild);
-    }
-    if((D.dsView||D.copyOf)&&sv&&!sv.hidden){
-      const lab=document.createElement('label');lab.id='dsMasterBox';lab.style.cssText='display:inline-flex;align-items:center;gap:6px;margin-right:10px;font-size:13px;cursor:pointer';
-      lab.title='Confidence '+CONF_MASTER+' statt '+CONF_STD+': Diese Fassung hat im Infocenter Vorrang vor Fassungen mit tieferer Confidence.';
-      lab.innerHTML='<input type="checkbox" id="dsMaster"'+((D.confidence||0)>=CONF_MASTER?' checked':'')+'> als Master-Objekt markieren';
-      sv.parentNode.insertBefore(lab,sv.previousElementSibling&&sv.previousElementSibling.dataset.act==='close'?sv.previousElementSibling:sv);
-      lab.querySelector('input').addEventListener('change',e=>{
-        if(S.draft!==D)return;D.confidence=e.target.checked?CONF_MASTER:CONF_STD;
-        if(!D.dsView)S.dirty=true;
-        const h=$('#dsLiteNote');if(h&&D.copyOf)h.textContent='Kopie des Infocenter-Objekts '+D.copyOf+' · Confidence '+D.confidence+(D.confidence>=CONF_MASTER?' (Master-Objekt)':'');
-      });
-    }
-  }
-  const origRE=renderEditor;
-  renderEditor=function(keep){origRE(keep);decorate()};
-
-  const origSave=ACT.save,origDel=ACT.del;
-  ACT.save=async function(b,e){
-    const D=S.draft;
-    if(D&&D.dsView){
-      if(!DB.sess){toast('Bitte anmelden, um eine Kopie anzulegen.');return}
-      if(!HUB.me){toast('Ihr Konto ist noch keiner Destination zugeordnet. Eine Kopie ist nicht möglich.');return}
-      const m=$('#dsMaster');
-      D.confidence=m&&m.checked?CONF_MASTER:CONF_STD;
-      D.copyOf=D.dsId;D.source='copy';D.id=newId();D.ownerOrg=HUB.me.org_id;D.created=new Date().toISOString();
-      if(!D.status||D.status==='infocenter')D.status='draft';
-      delete D.dsView;delete D.dsLite;
-      S.isNew=true;
-      if(typeof save==='function')await save();else origSave(b,e);
-      if(S.items.some(i=>i.id===D.id))toast('Kopie angelegt (Confidence '+D.confidence+'). Sie finden sie unter Ihren Einträgen.');
-      return;
-    }
-    return origSave(b,e);
-  };
-  ACT.del=function(b,e){
-    if(S.draft&&S.draft.dsView){toast('Infocenter-Objekte können hier nicht gelöscht werden.');return}
-    return origDel(b,e);
-  };
-
-  /* ---------- Start und Neuladen ---------- */
-  const origPull=pull;
-  pull=async function(){await origPull();await loadLite()};
-  if(DB.sess)loadLite();else stateUI();
-})();
