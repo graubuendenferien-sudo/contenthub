@@ -52,9 +52,22 @@
       it.track=de.geoShape.line.trim().split(/\s+/).map(p=>p.split(',').map(Number)).filter(c=>c.length>=2&&isFinite(c[0])&&isFinite(c[1]))
         .map(c=>c.length>2&&isFinite(c[2])?{x:c[0],y:c[1],z:c[2],s:'import'}:{x:c[0],y:c[1],z:null});
     }
+    /* Aktivitaet aus den Infocenter-Kategorien (fuer die Berechnung der Dauer) */
+    if(it.type==='tour'){const ap=profFromCats(de.category);if(ap)it.autoProfile=ap}
     it.id=lite.id;it.dsId=lite.dsId;it.dsView=true;it.status='draft';it.modified=lite.modified;it.confidence=CONF_STD;
     delete it.ownerOrg;delete it.dsLite;
     return it;
+  }
+  /* Kategorien (discover.swiss Themen-SUI) -> Berechnungsart; spezifischere Codes zuerst */
+  function profFromCats(cats){
+    const ids=(Array.isArray(cats)?cats:[]).map(c=>String(c&&c.identifier||'')).filter(Boolean);
+    const has=re=>ids.some(i=>re.test(i));
+    if(has(/^sui_011014$/))return 'ski';
+    if(has(/^sui_011007$/))return 'xc';
+    if(has(/^sui_011011$/)||has(/^sui_011020$/))return 'snow';
+    if(has(/^sui_0102/))return 'bike';
+    if(has(/^sui_0101/))return 'hike';
+    return null;
   }
   /* ---------- Touren: eigene Berechnung statt kopierter Werte ---------- */
   const hasForeign=D=>D&&D.type==='tour'&&Array.isArray(D.track)&&D.track.some(p=>p.s==='import');
@@ -83,8 +96,8 @@
     tourStats=function(D,prof){
       const c=origTS(D,prof);
       if(!D||!unmapped(D)||!c.length)return c;
-      const key=D.timeProfile||DEFAULT_PROF[D.additionalType||''],tp=key&&TOURP[key];
-      if(tp){c.time=calcTime(c.length,c.ascent,c.descent,tp);c.timeRule=tp.l+(D.timeProfile?'':' (Annahme – Berechnungsart unten anpassen)')}
+      const key=D.timeProfile||D.autoProfile||DEFAULT_PROF[D.additionalType||''],tp=key&&TOURP[key];
+      if(tp){c.time=calcTime(c.length,c.ascent,c.descent,tp);c.timeRule=tp.l+(D.timeProfile?'':D.autoProfile?' (aus der Kategorie im Infocenter)':' (Annahme – Berechnungsart unten anpassen)')}
       return c;
     };
   }
@@ -95,7 +108,7 @@
       const D=S.draft,box=$('#tourStats');
       if(!D||D.type!=='tour'||!box||!unmapped(D)||D.dsView)return;
       if(HUB.canEdit&&!HUB.canEdit(D))return;
-      const cur=D.timeProfile||DEFAULT_PROF[D.additionalType||'']||'';
+      const cur=D.timeProfile||D.autoProfile||DEFAULT_PROF[D.additionalType||'']||'';
       const wrap=document.createElement('label');wrap.className='f';wrap.style.marginTop='10px';
       wrap.innerHTML='<span>Dauer berechnen als</span><select id="tourProf"><option value="">– keine Berechnung –</option>'+
         Object.entries(PROF_LABEL).map(([k,l])=>'<option value="'+k+'"'+(k===cur?' selected':'')+'>'+l+'</option>').join('')+'</select>';
@@ -103,7 +116,7 @@
       wrap.querySelector('select').addEventListener('change',e=>{
         if(S.draft!==D)return;
         const v=e.target.value;
-        if(v)D.timeProfile=v;else if(DEFAULT_PROF[D.additionalType||''])D.timeProfile='none';else delete D.timeProfile;
+        if(v)D.timeProfile=v;else if(D.autoProfile||DEFAULT_PROF[D.additionalType||''])D.timeProfile='none';else delete D.timeProfile;
         S.dirty=true;
         if(typeof recalcTour==='function')recalcTour();else{D.computed=tourStats(D);renderTourStats()}
       });
@@ -123,8 +136,8 @@
         ensureOwn(D);
       }else if(typeof calcTime==='function'&&typeof TOURP!=='undefined'&&D&&D.type==='tour'&&D.computed&&D.computed.time==null&&D.computed.length&&unmapped(D)&&(!HUB.canEdit||HUB.canEdit(D))){
         /* Gespeicherte Tour ohne Dauer: Dauer nachrechnen (Speichern noetig) */
-        const c=D.computed,key=D.timeProfile||DEFAULT_PROF[D.additionalType||''],tp=key&&TOURP[key];
-        if(tp){c.time=calcTime(c.length,c.ascent,c.descent,tp);c.timeRule=tp.l+(D.timeProfile?'':' (Annahme – Berechnungsart unten anpassen)');S.dirty=true;renderEditor(true);toast('Die Dauer wurde berechnet. Bitte speichern.')}
+        const c=D.computed,key=D.timeProfile||D.autoProfile||DEFAULT_PROF[D.additionalType||''],tp=key&&TOURP[key];
+        if(tp){c.time=calcTime(c.length,c.ascent,c.descent,tp);c.timeRule=tp.l+(D.timeProfile?'':D.autoProfile?' (aus der Kategorie im Infocenter)':' (Annahme – Berechnungsart unten anpassen)');S.dirty=true;renderEditor(true);toast('Die Dauer wurde berechnet. Bitte speichern.')}
       }
       return r;
     }
