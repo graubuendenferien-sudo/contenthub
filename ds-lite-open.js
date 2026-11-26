@@ -1,6 +1,6 @@
-/* Contenthub: Infocenter-Objekte oeffnen und als Kopie speichern (Teil 2 zu ds-lite.js).
+/* Contenthub: Infocenter-Objekte oeffnen und als Entwurf im Hub speichern (Teil 2 zu ds-lite.js).
    - Holt den vollstaendigen Datensatz ueber die Datenbank aus dem Infocenter.
-   - "Kopie anlegen", wahlweise als Master-Objekt (Confidence 20 statt 1).
+   - "Als Entwurf speichern" (nur im Hub, nicht im Infocenter), wahlweise als Master-Objekt (Confidence 20 statt 1).
    Wird direkt nach ds-lite.js geladen. */
 (function(){
   'use strict';
@@ -76,19 +76,19 @@
     const D=S.draft,ed=$('#ed');
     ['#dsLiteNote','#dsMasterBox'].forEach(q=>{const o=$(q);if(o)o.remove()});
     const sv=$('#drawer .df [data-act="save"]'),dl=$('#delBtn');
-    if(sv)sv.textContent=D&&D.dsView?'Kopie anlegen':'Speichern';
+    if(sv)sv.textContent=D&&D.dsView?'Als Entwurf speichern':'Speichern';
     if(!D||!ed)return;
     if(D.dsView){
       if(dl)dl.hidden=true;
       $('#dTitle').textContent=TYPES[D.type].label+' aus dem Infocenter';
       const n=document.createElement('div');n.id='dsLiteNote';n.className='note';
       n.innerHTML='<b>Infocenter-Objekt aus discover.swiss</b> (ID '+esc(D.dsId)+'). Das Original wird hier nicht verändert. '+
-        'Mit «Kopie anlegen» speichern Sie Ihre Fassung als eigenen Eintrag Ihrer Organisation. '+
-        'Ohne Häkchen erhält die Kopie Confidence '+CONF_STD+', als Master-Objekt Confidence '+CONF_MASTER+' – im Infocenter überschreibt die höhere Confidence die tiefere.';
+        'Mit «Als Entwurf speichern» legen Sie Ihre Fassung als Entwurf Ihrer Organisation im Hub an. Im Infocenter wird dabei nichts angelegt oder geändert. '+
+        'Ohne Häkchen erhält Ihre Fassung Confidence '+CONF_STD+', als Master-Objekt Confidence '+CONF_MASTER+' – erst bei einer späteren Übermittlung ans Infocenter überschreibt die höhere Confidence die tiefere.';
       ed.insertBefore(n,ed.firstChild);
     }else if(D.copyOf){
       const n=document.createElement('div');n.id='dsLiteNote';n.className='hint';
-      n.textContent='Kopie des Infocenter-Objekts '+D.copyOf+' · Confidence '+(D.confidence||CONF_STD)+((D.confidence||0)>=CONF_MASTER?' (Master-Objekt)':'');
+      n.textContent='Fassung des Infocenter-Objekts '+D.copyOf+' · Confidence '+(D.confidence||CONF_STD)+((D.confidence||0)>=CONF_MASTER?' (Master-Objekt)':'');
       ed.insertBefore(n,ed.firstChild);
     }
     if((D.dsView||D.copyOf)&&sv&&!sv.hidden){
@@ -99,7 +99,7 @@
       lab.querySelector('input').addEventListener('change',e=>{
         if(S.draft!==D)return;D.confidence=e.target.checked?CONF_MASTER:CONF_STD;
         if(!D.dsView)S.dirty=true;
-        const h=$('#dsLiteNote');if(h&&D.copyOf)h.textContent='Kopie des Infocenter-Objekts '+D.copyOf+' · Confidence '+D.confidence+(D.confidence>=CONF_MASTER?' (Master-Objekt)':'');
+        const h=$('#dsLiteNote');if(h&&D.copyOf)h.textContent='Fassung des Infocenter-Objekts '+D.copyOf+' · Confidence '+D.confidence+(D.confidence>=CONF_MASTER?' (Master-Objekt)':'');
       });
     }
   }
@@ -110,16 +110,16 @@
   ACT.save=async function(b,e){
     const D=S.draft;
     if(D&&D.dsView){
-      if(!DB.sess){toast('Bitte anmelden, um eine Kopie anzulegen.');return}
-      if(!HUB.me){toast('Ihr Konto ist noch keiner Destination zugeordnet. Eine Kopie ist nicht möglich.');return}
+      if(!DB.sess){toast('Bitte anmelden, um einen Entwurf zu speichern.');return}
+      if(!HUB.me){toast('Ihr Konto ist noch keiner Destination zugeordnet. Speichern ist nicht möglich.');return}
       const m=$('#dsMaster');
       D.confidence=m&&m.checked?CONF_MASTER:CONF_STD;
       D.copyOf=D.dsId;D.source='copy';D.id=newId();D.ownerOrg=HUB.me.org_id;D.created=new Date().toISOString();
-      if(!D.status||D.status==='infocenter')D.status='draft';
+      D.status='draft';
       delete D.dsView;delete D.dsLite;
       S.isNew=true;
       if(typeof save==='function')await save();else origSave(b,e);
-      if(S.items.some(i=>i.id===D.id))toast('Kopie angelegt (Confidence '+D.confidence+'). Sie finden sie unter Ihren Einträgen.');
+      if(S.items.some(i=>i.id===D.id))toast('Als Entwurf gespeichert (Confidence '+D.confidence+'). Im Infocenter wurde nichts geändert. Sie finden den Entwurf unter Ihren Einträgen.');
       return;
     }
     return origSave(b,e);
