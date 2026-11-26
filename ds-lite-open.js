@@ -5,6 +5,7 @@
    - Loeschen mit deutlicher Rueckfrage.
    - Touren: Hoehen und Kennzahlen aus dem Infocenter werden nicht uebernommen (Urheberrecht),
      sondern aus dem eigenen Hoehenmodell (map.graubuenden.ch) neu berechnet.
+   - Dauer auch fuer Touren ohne bekannte Tourart ("Route" u. a.): Annahme Wandern oder gewaehlte Berechnungsart (timeProfile).
    Wird direkt nach ds-lite.js geladen. */
 (function(){
   'use strict';
@@ -73,6 +74,42 @@
     else toast('Kopierte Höhenwerte wurden entfernt. Für Aufstieg, Abstieg und Höhen braucht es den Kartenserver mit Höhenmodell – bitte verbinden und den Eintrag erneut speichern.');
   }
 
+  /* ---------- Dauer: Berechnungsart fuer Touren ohne bekannte Tourart ---------- */
+  const PROF_LABEL={hike:'Wandern',snow:'Winterwandern / Schneeschuh',ski:'Skitour',xc:'Langlauf',bike:'Velo / Bike'};
+  const DEFAULT_PROF={Route:'hike'};
+  const unmapped=D=>!(typeof TOURMAP!=='undefined'&&TOURMAP[D.additionalType||'']);
+  if(typeof tourStats==='function'&&typeof TOURP!=='undefined'&&typeof calcTime==='function'){
+    const origTS=tourStats;
+    tourStats=function(D,prof){
+      const c=origTS(D,prof);
+      if(!D||!unmapped(D)||!c.length)return c;
+      const key=D.timeProfile||DEFAULT_PROF[D.additionalType||''],tp=key&&TOURP[key];
+      if(tp){c.time=calcTime(c.length,c.ascent,c.descent,tp);c.timeRule=tp.l+(D.timeProfile?'':' (Annahme – Berechnungsart unten anpassen)')}
+      return c;
+    };
+  }
+  if(typeof renderTourStats==='function'){
+    const origRTS=renderTourStats;
+    renderTourStats=function(){
+      origRTS();
+      const D=S.draft,box=$('#tourStats');
+      if(!D||D.type!=='tour'||!box||!unmapped(D)||D.dsView)return;
+      if(HUB.canEdit&&!HUB.canEdit(D))return;
+      const cur=D.timeProfile||DEFAULT_PROF[D.additionalType||'']||'';
+      const wrap=document.createElement('label');wrap.className='f';wrap.style.marginTop='10px';
+      wrap.innerHTML='<span>Dauer berechnen als</span><select id="tourProf"><option value="">– keine Berechnung –</option>'+
+        Object.entries(PROF_LABEL).map(([k,l])=>'<option value="'+k+'"'+(k===cur?' selected':'')+'>'+l+'</option>').join('')+'</select>';
+      box.appendChild(wrap);
+      wrap.querySelector('select').addEventListener('change',e=>{
+        if(S.draft!==D)return;
+        const v=e.target.value;
+        if(v)D.timeProfile=v;else if(DEFAULT_PROF[D.additionalType||''])D.timeProfile='none';else delete D.timeProfile;
+        S.dirty=true;
+        if(typeof recalcTour==='function')recalcTour();else{D.computed=tourStats(D);renderTourStats()}
+      });
+    };
+  }
+
   let opening=null;
   const origOpen=openEditor;
   openEditor=function(idOrItem,isNew){
@@ -84,6 +121,10 @@
         stripForeign(D);S.dirty=true;renderEditor(true);
         toast('Höhenwerte aus dem Infocenter wurden entfernt und werden neu berechnet …');
         ensureOwn(D);
+      }else if(typeof calcTime==='function'&&typeof TOURP!=='undefined'&&D&&D.type==='tour'&&D.computed&&D.computed.time==null&&D.computed.length&&unmapped(D)&&(!HUB.canEdit||HUB.canEdit(D))){
+        /* Gespeicherte Tour ohne Dauer: Dauer nachrechnen (Speichern noetig) */
+        const c=D.computed,key=D.timeProfile||DEFAULT_PROF[D.additionalType||''],tp=key&&TOURP[key];
+        if(tp){c.time=calcTime(c.length,c.ascent,c.descent,tp);c.timeRule=tp.l+(D.timeProfile?'':' (Annahme – Berechnungsart unten anpassen)');S.dirty=true;renderEditor(true);toast('Die Dauer wurde berechnet. Bitte speichern.')}
       }
       return r;
     }
