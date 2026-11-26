@@ -3,6 +3,8 @@
    - "Als Entwurf speichern": bleibt nur im Hub (hubOnly), geht nie ans Infocenter.
    - "Als Kopie speichern": wird spaeter ans Infocenter uebermittelt, wahlweise als Master-Objekt (Confidence 20 statt 1).
    - Loeschen mit deutlicher Rueckfrage.
+   - Touren: Hoehen und Kennzahlen aus dem Infocenter werden nicht uebernommen (Urheberrecht),
+     sondern aus dem eigenen Hoehenmodell (map.graubuenden.ch) neu berechnet.
    Wird direkt nach ds-lite.js geladen. */
 (function(){
   'use strict';
@@ -53,11 +55,38 @@
     delete it.ownerOrg;delete it.dsLite;
     return it;
   }
+  /* ---------- Touren: eigene Berechnung statt kopierter Werte ---------- */
+  const hasForeign=D=>D&&D.type==='tour'&&Array.isArray(D.track)&&D.track.some(p=>p.s==='import');
+  function stripForeign(D){
+    D.track=D.track.map(p=>({x:p.x,y:p.y,z:null}));
+    delete D.computed;delete D.timeOverride;D.ownCalc=true;
+  }
+  async function recalcOwn(D){
+    if(typeof recalcTour!=='function'||S.draft!==D)return false;
+    await recalcTour();
+    return S.draft===D&&D.computed&&D.computed.ascent!=null;
+  }
+  async function ensureOwn(D){
+    const ok=await recalcOwn(D);
+    if(S.draft!==D)return;
+    if(ok){S.isNew=false;await save()}
+    else toast('Kopierte Höhenwerte wurden entfernt. Für Aufstieg, Abstieg und Höhen braucht es den Kartenserver mit Höhenmodell – bitte verbinden und den Eintrag erneut speichern.');
+  }
+
   let opening=null;
   const origOpen=openEditor;
   openEditor=function(idOrItem,isNew){
     const src=typeof idOrItem==='string'?S.items.find(i=>i.id===idOrItem):idOrItem;
-    if(!isLite(src))return origOpen(idOrItem,isNew);
+    if(!isLite(src)){
+      const r=origOpen(idOrItem,isNew),D=S.draft;
+      /* Bestehende Kopien mit uebernommenen Hoehen: einmalig neu berechnen */
+      if(D&&D.copyOf&&!D.ownCalc&&hasForeign(D)&&(!HUB.canEdit||HUB.canEdit(D))){
+        stripForeign(D);S.dirty=true;renderEditor(true);
+        toast('Höhenwerte aus dem Infocenter wurden entfernt und werden neu berechnet …');
+        ensureOwn(D);
+      }
+      return r;
+    }
     if(S.draft&&S.dirty){toast('Ungespeicherte Änderungen – bitte zuerst speichern oder verwerfen.');return}
     if(!DB.sess){toast('Bitte anmelden, um Infocenter-Objekte zu öffnen.');return}
     if(opening===src.id)return;
@@ -128,8 +157,11 @@
       D.copyOf=D.dsId;D.source='copy';D.id=newId();D.ownerOrg=HUB.me.org_id;D.created=new Date().toISOString();
       D.status='draft';
       delete D.dsView;delete D.dsLite;
+      const tour=hasForeign(D)||D.type==='tour';
+      if(tour&&Array.isArray(D.track))stripForeign(D);
       S.isNew=true;
       if(typeof save==='function')await save();else origSave(b,e);
+      if(tour&&S.items.some(i=>i.id===D.id)){await ensureOwn(D);if(S.draft===D&&D.computed&&D.computed.ascent!=null)toast((hubOnly?'Als Entwurf':'Als Kopie')+' gespeichert. Länge und Höhenwerte wurden aus dem eigenen Höhenmodell neu berechnet.');return}
       if(S.items.some(i=>i.id===D.id))toast(hubOnly?'Als Entwurf gespeichert. Er bleibt nur im Hub und wird nicht ans Infocenter übermittelt.':
         'Als Kopie gespeichert (Confidence '+D.confidence+'). Sie wird später ans Infocenter übermittelt; bis dahin ändert sich dort nichts.');
       return;
