@@ -1,6 +1,8 @@
 /* Contenthub: Infocenter-Objekte oeffnen und als Entwurf im Hub speichern (Teil 2 zu ds-lite.js).
    - Holt den vollstaendigen Datensatz ueber die Datenbank aus dem Infocenter.
-   - "Als Entwurf speichern" (nur im Hub, nicht im Infocenter), wahlweise als Master-Objekt (Confidence 20 statt 1).
+   - "Als Entwurf speichern": bleibt nur im Hub (hubOnly), geht nie ans Infocenter.
+   - "Als Kopie speichern": wird spaeter ans Infocenter uebermittelt, wahlweise als Master-Objekt (Confidence 20 statt 1).
+   - Loeschen mit deutlicher Rueckfrage.
    Wird direkt nach ds-lite.js geladen. */
 (function(){
   'use strict';
@@ -71,27 +73,33 @@
     })();
   };
 
-  /* ---------- Formular: Hinweis, "Kopie anlegen", Master-Objekt ---------- */
+  /* ---------- Formular: Hinweis, Entwurf oder Kopie, Master-Objekt ---------- */
   function decorate(){
     const D=S.draft,ed=$('#ed');
-    ['#dsLiteNote','#dsMasterBox'].forEach(q=>{const o=$(q);if(o)o.remove()});
+    ['#dsLiteNote','#dsMasterBox','#dsDraftBtn'].forEach(q=>{const o=$(q);if(o)o.remove()});
     const sv=$('#drawer .df [data-act="save"]'),dl=$('#delBtn');
-    if(sv)sv.textContent=D&&D.dsView?'Als Entwurf speichern':'Speichern';
+    if(sv)sv.textContent=D&&D.dsView?'Als Kopie speichern':'Speichern';
     if(!D||!ed)return;
     if(D.dsView){
       if(dl)dl.hidden=true;
       $('#dTitle').textContent=TYPES[D.type].label+' aus dem Infocenter';
       const n=document.createElement('div');n.id='dsLiteNote';n.className='note';
       n.innerHTML='<b>Infocenter-Objekt aus discover.swiss</b> (ID '+esc(D.dsId)+'). Das Original wird hier nicht verändert. '+
-        'Mit «Als Entwurf speichern» legen Sie Ihre Fassung als Entwurf Ihrer Organisation im Hub an. Im Infocenter wird dabei nichts angelegt oder geändert. '+
-        'Ohne Häkchen erhält Ihre Fassung Confidence '+CONF_STD+', als Master-Objekt Confidence '+CONF_MASTER+' – erst bei einer späteren Übermittlung ans Infocenter überschreibt die höhere Confidence die tiefere.';
+        '<br>«Als Entwurf speichern»: Ihre Fassung bleibt nur im Hub und wird nie ans Infocenter übermittelt. '+
+        '<br>«Als Kopie speichern»: Ihre Fassung wird später ans Infocenter übermittelt – mit Confidence '+CONF_STD+', als Master-Objekt mit Confidence '+CONF_MASTER+' (die höhere Confidence überschreibt die tiefere).';
       ed.insertBefore(n,ed.firstChild);
+      if(sv&&!sv.hidden){
+        const db=document.createElement('button');db.type='button';db.id='dsDraftBtn';db.className='btn';db.dataset.act='dssavedraft';
+        db.textContent='Als Entwurf speichern';db.title='Nur im Hub speichern, nie ans Infocenter übermitteln';
+        sv.parentNode.insertBefore(db,sv);
+      }
     }else if(D.copyOf){
       const n=document.createElement('div');n.id='dsLiteNote';n.className='hint';
-      n.textContent='Fassung des Infocenter-Objekts '+D.copyOf+' · Confidence '+(D.confidence||CONF_STD)+((D.confidence||0)>=CONF_MASTER?' (Master-Objekt)':'');
+      n.textContent=D.hubOnly?'Entwurf auf Basis des Infocenter-Objekts '+D.copyOf+' · nur im Hub, wird nicht ans Infocenter übermittelt':
+        'Kopie des Infocenter-Objekts '+D.copyOf+' · Confidence '+(D.confidence||CONF_STD)+((D.confidence||0)>=CONF_MASTER?' (Master-Objekt)':'');
       ed.insertBefore(n,ed.firstChild);
     }
-    if((D.dsView||D.copyOf)&&sv&&!sv.hidden){
+    if((D.dsView||D.copyOf&&!D.hubOnly)&&sv&&!sv.hidden){
       const lab=document.createElement('label');lab.id='dsMasterBox';lab.style.cssText='display:inline-flex;align-items:center;gap:6px;margin-right:10px;font-size:13px;cursor:pointer';
       lab.title='Confidence '+CONF_MASTER+' statt '+CONF_STD+': Diese Fassung hat im Infocenter Vorrang vor Fassungen mit tieferer Confidence.';
       lab.innerHTML='<input type="checkbox" id="dsMaster"'+((D.confidence||0)>=CONF_MASTER?' checked':'')+'> als Master-Objekt markieren';
@@ -99,7 +107,7 @@
       lab.querySelector('input').addEventListener('change',e=>{
         if(S.draft!==D)return;D.confidence=e.target.checked?CONF_MASTER:CONF_STD;
         if(!D.dsView)S.dirty=true;
-        const h=$('#dsLiteNote');if(h&&D.copyOf)h.textContent='Fassung des Infocenter-Objekts '+D.copyOf+' · Confidence '+D.confidence+(D.confidence>=CONF_MASTER?' (Master-Objekt)':'');
+        const h=$('#dsLiteNote');if(h&&D.copyOf)h.textContent='Kopie des Infocenter-Objekts '+D.copyOf+' · Confidence '+D.confidence+(D.confidence>=CONF_MASTER?' (Master-Objekt)':'');
       });
     }
   }
@@ -107,25 +115,32 @@
   renderEditor=function(keep){origRE(keep);decorate()};
 
   const origSave=ACT.save,origDel=ACT.del;
+  let asDraft=false;
+  ACT.dssavedraft=function(b,e){asDraft=true;return ACT.save(b,e)};
   ACT.save=async function(b,e){
-    const D=S.draft;
+    const D=S.draft,hubOnly=asDraft;asDraft=false;
     if(D&&D.dsView){
       if(!DB.sess){toast('Bitte anmelden, um einen Entwurf zu speichern.');return}
       if(!HUB.me){toast('Ihr Konto ist noch keiner Destination zugeordnet. Speichern ist nicht möglich.');return}
       const m=$('#dsMaster');
-      D.confidence=m&&m.checked?CONF_MASTER:CONF_STD;
+      D.confidence=!hubOnly&&m&&m.checked?CONF_MASTER:CONF_STD;
+      if(hubOnly)D.hubOnly=true;else delete D.hubOnly;
       D.copyOf=D.dsId;D.source='copy';D.id=newId();D.ownerOrg=HUB.me.org_id;D.created=new Date().toISOString();
       D.status='draft';
       delete D.dsView;delete D.dsLite;
       S.isNew=true;
       if(typeof save==='function')await save();else origSave(b,e);
-      if(S.items.some(i=>i.id===D.id))toast('Als Entwurf gespeichert (Confidence '+D.confidence+'). Im Infocenter wurde nichts geändert. Sie finden den Entwurf unter Ihren Einträgen.');
+      if(S.items.some(i=>i.id===D.id))toast(hubOnly?'Als Entwurf gespeichert. Er bleibt nur im Hub und wird nicht ans Infocenter übermittelt.':
+        'Als Kopie gespeichert (Confidence '+D.confidence+'). Sie wird später ans Infocenter übermittelt; bis dahin ändert sich dort nichts.');
       return;
     }
     return origSave(b,e);
   };
   ACT.del=function(b,e){
-    if(S.draft&&S.draft.dsView){toast('Infocenter-Objekte können hier nicht gelöscht werden.');return}
+    const D=S.draft;if(!D)return;
+    if(D.dsView){toast('Infocenter-Objekte können hier nicht gelöscht werden.');return}
+    if(!window.confirm('«'+nm(D)+'» wirklich löschen?\n\nDer Eintrag wird aus dem Hub entfernt.'+(D.copyOf?' Das Original im Infocenter bleibt unverändert.':'')))return;
+    ACT.del.armed=true;
     return origDel(b,e);
   };
 
